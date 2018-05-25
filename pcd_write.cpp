@@ -8,9 +8,50 @@
 #include <pcl/io/pcd_io.h>
 #include <pcl/keypoints/iss_3d.h>
 
+double compute_cloud_resolution (const pcl::PointCloud<pcl::PointXYZ>::ConstPtr &cloud) {
+    double res = 0.0;
+    int n_points = 0;
+    int nres;
+    std::vector<int> indices (2);
+    std::vector<float> sqr_distances (2);
+    pcl::search::KdTree<pcl::PointXYZ> tree;
+    tree.setInputCloud (cloud);
 
-void extractKeypoints(pcl::PointCloud<pcl::PointXYZ>::Ptr model, pcl::PointCloud<pcl::PointXYZ>::Ptr model_keypoints) {
+    for (size_t i = 0; i < cloud->size (); ++i) {
+        if (! pcl_isfinite ((*cloud)[i].x)) {
+            continue;
+        }
+        //Considering the second neighbor since the first is the point itself.
+        nres = tree.nearestKSearch (i, 2, indices, sqr_distances);
+        if (nres == 2) {
+            res += sqrt (sqr_distances[1]);
+            ++n_points;
+        }
+    }
+    if (n_points != 0) {
+        res /= n_points;
+    }
+    return res;
+}
 
+int iss3d( pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud, pcl::PointCloud<pcl::PointXYZ>::Ptr kpts) {
+    pcl::ISSKeypoint3D<pcl::PointXYZ, pcl::PointXYZ> iss_detector;
+    pcl::search::KdTree<pcl::PointXYZ>::Ptr tree( new pcl::search::KdTree<pcl::PointXYZ>() );
+
+    double cloud_resolution = compute_cloud_resolution(cloud);
+
+    iss_detector.setSearchMethod (tree);
+    iss_detector.setSalientRadius (6 * cloud_resolution);
+    iss_detector.setNonMaxRadius (4 * cloud_resolution);
+
+    iss_detector.setThreshold21 (0.8);
+    iss_detector.setThreshold32 (0.8);
+    iss_detector.setMinNeighbors (5);
+    iss_detector.setNumberOfThreads (1);
+    iss_detector.setInputCloud (cloud);
+    iss_detector.compute(*kpts);
+
+    return 0;
 }
 
 pcl::PointCloud<pcl::Normal>::Ptr estimateNormal (pcl::PointCloud<pcl::PointXYZ>::Ptr cloud)
@@ -28,7 +69,7 @@ pcl::PointCloud<pcl::Normal>::Ptr estimateNormal (pcl::PointCloud<pcl::PointXYZ>
     pcl::PointCloud<pcl::Normal>::Ptr cloud_normals (new pcl::PointCloud<pcl::Normal>);
 
     // Use all neighbors in a sphere of radius 3cm
-    ne.setRadiusSearch (0.03);
+    ne.setRadiusSearch (0.3);
 
     // Compute the features
     ne.compute (*cloud_normals);
@@ -40,7 +81,7 @@ pcl::PointCloud<pcl::Normal>::Ptr estimateNormal (pcl::PointCloud<pcl::PointXYZ>
 
 int pcd_read(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud) {
 
-    if (pcl::io::loadPCDFile<pcl::PointXYZ> ("/Users/karenhong/Desktop/Meshes/SpatialMapping_meier_low3.pcd", *cloud) == -1) //* load the file
+    if (pcl::io::loadPCDFile<pcl::PointXYZ> ("/Users/karenhong/Desktop/Meshes/SpatialMapping_meier_low1.pcd", *cloud) == -1) //* load the file
     {
         PCL_ERROR ("Couldn't read file \n");
         return (-1);
@@ -49,7 +90,7 @@ int pcd_read(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud) {
 }
 
 int writeToFile(pcl::PointCloud<pcl::PFHSignature125>::Ptr pfhs) {
-    std::ofstream myfile ("hist1.txt");
+    std::ofstream myfile ("hist1.csv");
     if (myfile.is_open())
     {
         for (size_t i = 0; i < pfhs->points.size (); ++i)
@@ -57,7 +98,7 @@ int writeToFile(pcl::PointCloud<pcl::PFHSignature125>::Ptr pfhs) {
             for (size_t j = 0; j < 125; ++j)
             {
                 myfile << pfhs->points[i].histogram[j];
-                myfile << " ";
+                myfile << ", ";
             }
             myfile << "\n";
         }
@@ -67,24 +108,44 @@ int writeToFile(pcl::PointCloud<pcl::PFHSignature125>::Ptr pfhs) {
     return 0;
 }
 
-int
-main (int argc, char** argv)
+int writePCToFile(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud) {
+    std::ofstream myfile ("keypoints.csv");
+    if (myfile.is_open())
+    {
+        for (size_t i = 0; i < cloud->points.size (); ++i)
+        {
+            for (size_t j = 0; j < 3; ++j)
+            {
+                myfile << cloud->points[i].data[j];
+                myfile << ", ";
+            }
+            myfile << "\n";
+        }
+        myfile.close();
+    }
+    else std::cout << "Unable to open file";
+    return 0;
+
+}
+
+int main (int argc, char** argv)
 {
 
-//    ... read, pass in or create a point cloud with normals ...
-//    ... (note: you can create a single PointCloud<PointNormal> if you want) ...
-
-//    const std::string & filename = "/Users/karenhong/Desktop/Meshes/SpatialMapping_meier_low1.obj";
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>);
     pcl::PointCloud<pcl::PointXYZ>::Ptr model_keypoints (new pcl::PointCloud<pcl::PointXYZ> ());
+    pcl::PointCloud<pcl::PointXYZ>::Ptr keypoints(new pcl::PointCloud<pcl::PointXYZ> ());
 
     pcd_read(cloud);
-//    extractKeypoints(cloud, model_keypoints);
-    pcl::PointCloud<pcl::Normal>::Ptr normals = estimateNormal(cloud);
+
+    iss3d(cloud, keypoints);
+    pcl::PointCloud<pcl::Normal>::Ptr normals = estimateNormal(keypoints);
+
+    writePCToFile(keypoints);
+//    writePCToFile(cloud, "pointcloud.csv");
 
     // Create the PFH estimation class, and pass the input dataset+normals to it
     pcl::PFHEstimation<pcl::PointXYZ, pcl::Normal, pcl::PFHSignature125> pfh;
-    pfh.setInputCloud (cloud);
+    pfh.setInputCloud (keypoints);
     pfh.setInputNormals (normals);
     // alternatively, if cloud is of tpe PointNormal, do pfh.setInputNormals (cloud);
 
