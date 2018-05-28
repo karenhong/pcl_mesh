@@ -1,3 +1,5 @@
+#include <boost/random.hpp>
+#include <boost/random/normal_distribution.hpp>
 #include <iostream>
 #include <fstream>
 
@@ -9,11 +11,12 @@
 #include <pcl/keypoints/iss_3d.h>
 
 std::string inputFilename = "/Users/karenhong/Desktop/Meshes/bunny.obj";
-std::string outputname = "bunny1";
-double featureSearchRadius = 0.3;
-double normalSearchRadius = 0.1;
+std::string outputname = "funfzig_noise_bunny0603";
+double featureSearchRadius = 0.06;
+double normalSearchRadius = 0.03;
+float noise_percent = 6; // 60% of time will add noise
 
-void readobj2pc(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, pcl::PointCloud<pcl::Normal>::Ptr normals)
+void readobj2pc(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud)
 {
     // Input stream
     std::ifstream is(inputFilename.c_str());
@@ -36,6 +39,29 @@ void readobj2pc(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, pcl::PointCloud<pcl::
     is.close();
 }
 
+void add_noise(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud) {
+    double noise_std = 0.001; //1mm
+    struct timeval start;
+    gettimeofday (&start, NULL);
+    boost::mt19937 rng;
+    rng.seed (start.tv_usec);
+    boost::normal_distribution<> nd (0.0, noise_std);
+    boost::variate_generator<boost::mt19937&,
+            boost::normal_distribution<> > var_nor (rng, nd);
+
+    for (size_t i = 0; i < cloud->points.size (); ++i)
+    {
+        float f = rand()*1.0f/RAND_MAX;
+        float vv= noise_percent / 10.0f;
+        if (f < vv) {
+            std::cout << var_nor() << "\n";
+            cloud->points[i].x += var_nor ();
+            cloud->points[i].y += var_nor ();
+            cloud->points[i].z += var_nor ();
+        }
+    }
+
+}
 
 double compute_cloud_resolution (const pcl::PointCloud<pcl::PointXYZ>::ConstPtr &cloud) {
     double res = 0.0;
@@ -173,9 +199,10 @@ int main (int argc, char** argv)
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ> ());
     pcl::PointCloud<pcl::PointXYZ>::Ptr keypoints(new pcl::PointCloud<pcl::PointXYZ> ());
-    pcl::PointCloud<pcl::Normal>::Ptr normals (new pcl::PointCloud<pcl::Normal> ());
+//    pcl::PointCloud<pcl::Normal>::Ptr normals (new pcl::PointCloud<pcl::Normal> ());
 
-    readobj2pc(cloud, normals);
+    readobj2pc(cloud);
+    add_noise(cloud);
 
     pcl::PointCloud<pcl::Normal>::Ptr estimated_normals = estimateNormal(cloud);
     iss3d(cloud, estimated_normals, keypoints);
