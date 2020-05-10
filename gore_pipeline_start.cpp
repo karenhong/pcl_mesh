@@ -1,20 +1,25 @@
 #include <boost/random.hpp>
-#include <boost/random/normal_distribution.hpp>
-#include <iostream>
 #include <fstream>
 
-#include <pcl/point_types.h>
 #include <pcl/features/pfh.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/io/obj_io.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl/keypoints/iss_3d.h>
 
-std::string inputFilename = "/Users/karenhong/Desktop/Meshes/bunny.obj";
-std::string outputname = "funfzig_noise_bunny0603";
-double featureSearchRadius = 0.06;
-double normalSearchRadius = 0.03;
-float noise_percent = 6; // 60% of time will add noise
+/////////////////////////////////////////////////////////////////////
+// User defined parameters
+/////////////////////////////////////////////////////////////////////
+std::string inputFilename = "PATH_TO_INPUT_FILE";
+std::string outputname = "NAME_OF_OUTPUT_FILE";
+double featureSearchRadius = 0.5; // IMPORTANT: the radius used here has to be larger than the radius used to estimate the surface normals!!!
+double normalSearchRadius = 0.3;
+bool noise = true;
+float noise_percent = 4; // add noise to x0% of points
+double noise_std = 0.001; //1mm
+
+
+/////////////////////////////////////////////////////////////////////
 
 void readobj2pc(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud)
 {
@@ -39,8 +44,8 @@ void readobj2pc(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud)
     is.close();
 }
 
+// Function that adds noise to a user defined percentage of points
 void add_noise(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud) {
-    double noise_std = 0.001; //1mm
     struct timeval start;
     gettimeofday (&start, NULL);
     boost::mt19937 rng;
@@ -76,7 +81,7 @@ double compute_cloud_resolution (const pcl::PointCloud<pcl::PointXYZ>::ConstPtr 
         if (! pcl_isfinite ((*cloud)[i].x)) {
             continue;
         }
-        //Considering the second neighbor since the first is the point itself.
+        // Considering the second neighbor since the first is the point itself.
         nres = tree.nearestKSearch (i, 2, indices, sqr_distances);
         if (nres == 2) {
             res += sqrt (sqr_distances[1]);
@@ -124,7 +129,7 @@ pcl::PointCloud<pcl::Normal>::Ptr estimateNormal (pcl::PointCloud<pcl::PointXYZ>
     // Output datasets
     pcl::PointCloud<pcl::Normal>::Ptr cloud_normals (new pcl::PointCloud<pcl::Normal>);
 
-    // Use all neighbors in a sphere of radius 3cm
+    // Use all neighbors in a sphere of a user defined radius
     ne.setRadiusSearch (normalSearchRadius);
 
     // Compute the features
@@ -199,10 +204,11 @@ int main (int argc, char** argv)
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ> ());
     pcl::PointCloud<pcl::PointXYZ>::Ptr keypoints(new pcl::PointCloud<pcl::PointXYZ> ());
-//    pcl::PointCloud<pcl::Normal>::Ptr normals (new pcl::PointCloud<pcl::Normal> ());
 
     readobj2pc(cloud);
-    add_noise(cloud);
+    if (noise) {
+        add_noise(cloud);
+    }
 
     pcl::PointCloud<pcl::Normal>::Ptr estimated_normals = estimateNormal(cloud);
     iss3d(cloud, estimated_normals, keypoints);
@@ -215,7 +221,6 @@ int main (int argc, char** argv)
     pcl::PFHEstimation<pcl::PointXYZ, pcl::Normal, pcl::PFHSignature125> pfh;
     pfh.setInputCloud (keypoints);
     pfh.setInputNormals (estimated_normals);
-    // alternatively, if cloud is of the PointNormal, do pfh.setInputNormals (cloud);
 
     // Create an empty kdtree representation, and pass it to the PFH estimation object.
     // Its content will be filled inside the object, based on the given input dataset (as no other search surface is given).
@@ -226,7 +231,7 @@ int main (int argc, char** argv)
     // Output datasets
     pcl::PointCloud<pcl::PFHSignature125>::Ptr pfhs (new pcl::PointCloud<pcl::PFHSignature125> ());
 
-    // Use all neighbors in a sphere of radius 5cm
+    // Use all neighbors in a sphere of a user defined radius
     // IMPORTANT: the radius used here has to be larger than the radius used to estimate the surface normals!!!
     pfh.setRadiusSearch (featureSearchRadius);
 
